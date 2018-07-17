@@ -1,0 +1,119 @@
+---
+- hosts: tower
+  gather_facts: False
+  tasks:
+  - name: Enviando paquetes Wake-On-Lan.
+    wakeonlan:
+      mac: '54:ee:75:5e:59:ae'
+      broadcast: 192.168.100.255
+  - name: Instalación Baremetal.
+    wait_for_connection:
+      delay: 60
+      timeout: 180
+    delegate_to: 127.0.0.1
+  - name: Esperando conexión con servidor.
+    wait_for:
+       host: 192.168.100.100
+       port: 22
+       state: started
+       delay: 10
+       connect_timeout: 10
+       timeout: 30
+  - name: add host to group 'just_created' with variable foo=42
+    add_host:
+      name: "192.168.100.100"
+      groups: Computo
+- hosts: Computo
+  remote_user: root
+  gather_facts: False
+  tasks:
+  - name: Configurando Repositorios.
+    get_url:
+      url: ftp://192.168.100.10/pub/rhel7.repo
+      dest: /etc/yum.repos.d/rhel7.repo
+      mode: 0440
+  - name: Instalando KVM
+    yum: name={{ item }} state=present
+    with_items:
+            - qemu-kvm
+            - virt-manager
+            - virt-install
+            - libvirt-daemon
+            - libguestfs
+            - libguestfs-tools
+            - libvirt-client 
+            - libvirt 
+            - libvirt-python
+            - qemu-guest-agent
+            - qemu-img 
+  - name: Iniciando servicio libvirtd.
+    systemd: state=started name=libvirtd
+ - name: Habilitando servicio libvirtd.
+    systemd:
+      name: libvirtd
+      enabled: yes
+
+  - name: Creando archivo br1
+    get_url:
+      url: ftp://192.168.100.10/pub/extra/ifcfg-br1
+      dest: /etc/sysconfig/network-scripts/ifcfg-br1
+
+- name: Descargando archivo enp0s25
+    get_url:
+      url: ftp://192.168.100.10/pub/extra/ifcfg-enp0s25
+      dest: /tmp/ifcfg-enp0s25
+
+  - name: Modificando archivo enp0s25
+    command: mv /tmp/ifcfg-enp0s25 /etc/sysconfig/network-scripts/ifcfg-enp0s25
+
+  - name: Descargando imagen RHEL 7.5
+    get_url:
+      url: ftp://192.168.100.10/pub/extra/rhel-server-7.5-x86_64-kvm.qcow2
+      dest: /var/lib/libvirt/images/rhel7.qcow2
+
+  - name: Descarga Dominio
+    get_url:
+      url: ftp://192.168.100.10/pub/extra/vm-deploy.xml
+      dest: /var/lib/libvirt/images/vm.xml
+
+  - name: Reiniciando nodo
+    shell: sleep 2 && shutdown -r now "Ansible reboot"
+    async: 1
+    poll: 0
+    ignore_errors: true
+      
+  - name: Esperando conexión con servidor.
+    local_action: wait_for
+    args:
+      host: "{{ inventory_hostname }}"
+      port: 22
+      state: started
+      delay: 30
+      timeout: 180
+
+  - name: Definicion vm
+    command: virsh define /var/lib/libvirt/images/vm.xml 
+   virt:
+        name: generic
+        command: define
+        xml: '/var/lib/libvirt/images/vm.xml'
+
+  - name: Arranque VM
+    command: virsh start generic
+    virt:
+        name: generic
+        state: running
+- hosts: tower
+  remote_user: root
+  gather_facts: False
+  tasks:
+  - name: Enviando Notificaciones
+    mail:
+      host: smtp.gmail.com
+      port: 465
+      username: mpinedam01@gmail.com
+      password: 'bxiwugikmudoefzp'
+      to: Miguel Pineda <mpinedam01@gmail.com>
+      subject: Ansible-report / Red Hat México.
+      body: 'El Playbook para instalar Hipervisores y Máquinas Virtuales ha sido ejecutado satisfactoriamente: 
+      Ud. puede acceder a las siguientes ip: {{ host_address }} User: root Password: {{ password }}'
